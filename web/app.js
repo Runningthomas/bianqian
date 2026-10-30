@@ -173,6 +173,85 @@
     return Number.isFinite(n.x) && Number.isFinite(n.y) && !(n.x === 0 && n.y === 0);
   }
 
+  // 重新排布所有"未定位置"的便签（按真实高度逐列往下摆），
+  // 内容自动增高完成后调用，避免压盖。
+  function relayoutFreeNotes(canvas, originX, originY, cols) {
+    const free = $$('.note', canvas).filter((el) => {
+      const n = state.notes[el.dataset.id];
+      return n && !hasPosition(n);
+    });
+    if (!free.length) return;
+
+    // 第一步：把自由便签统一挪到同一列，逐个读取真实高度（此时不重叠，测高准确）
+    // 用 offsetHeight 而非 getBoundingClientRect：便签有随机旋转，
+    // 后者含旋转外扩会导致测高偏大。
+    const heights = [];
+    for (const el of free) {
+      el.style.left = originX + 'px';
+      el.style.top = '0px';
+      heights.push((el.offsetHeight || 180) + 10); // 留旋转与边框余量
+    }
+
+    // 第二步：按列分配。已定位的便签占用空间也计入，避免压到它们
+    const colBottom = new Array(Math.max(1, cols)).fill(originY);
+    for (const el of $$('.note', canvas)) {
+      if (free.includes(el)) continue;
+      const x = parseFloat(el.style.left) || 0;
+      const y = parseFloat(el.style.top) || 0;
+      const col = Math.max(0, Math.min(cols - 1, Math.round((x - originX) / (NOTE_W + GAP))));
+      const bottom = y + (el.offsetHeight || 180) + 20;
+      if (bottom > colBottom[col]) colBottom[col] = bottom;
+    }
+
+    // 第三步：依次放入当前最空的一列，用真实高度推进该列底部
+    for (let i = 0; i < free.length; i++) {
+      const el = free[i];
+      let col = 0;
+      for (let c = 1; c < colBottom.length; c++) {
+        if (colBottom[c] < colBottom[col]) col = c;
+      }
+      el.style.left = originX + col * (NOTE_W + GAP) + 'px';
+      el.style.top = colBottom[col] + 'px';
+      colBottom[col] = colBottom[col] + heights[i] + 8;
+    }
+
+    // 第四步：复核。放到最终位置后高度可能与测高时不同（如内容自动增高），
+    // 逐列检查并把被压住的便签往下推。
+    const byCol = new Map();
+    for (const el of free) {
+      const x = parseFloat(el.style.left) || 0;
+      if (!byCol.has(x)) byCol.set(x, []);
+      byCol.get(x).push(el);
+    }
+    for (const group of byCol.values()) {
+      group.sort((a, b) => (parseFloat(a.style.top) || 0) - (parseFloat(b.style.top) || 0));
+      let bottom = -Infinity;
+      for (const el of group) {
+        const y = parseFloat(el.style.top) || 0;
+        if (y < bottom) el.style.top = bottom + 'px';
+        const realY = parseFloat(el.style.top) || 0;
+        bottom = realY + (el.offsetHeight || 180) + 10;
+      }
+    }
+
+    // 第五步：便签内容增高后尺寸会变，用 ResizeObserver 持续纠正压盖
+    if (typeof ResizeObserver !== 'undefined' && !canvas.__bqRO) {
+      canvas.__bqRO = new ResizeObserver(() => {
+        clearTimeout(canvas.__bqROTimer);
+        canvas.__bqROTimer = setTimeout(() => {
+          const c = $('#canvas');
+          if (c) relayoutFreeNotes(c, 26, 26, Math.max(1, Math.floor((c.parentElement.clientWidth - 52 + GAP) / (NOTE_W + GAP))));
+        }, 60);
+      });
+      canvas.__bqRO.observe(canvas);
+    }
+    for (const el of free) {
+      if (canvas.__bqRO && !el.__bqObs) {
+        el.__bqObs = true;
+        canvas.__bqRO.observe(el);
+      }
+    }
+  }
   function renderAll() {
     renderCanvas();
     updateTopUI();
@@ -196,31 +275,30 @@
     const originX = 26;
     const originY = 26;
 
-    // 没有有效位置的便签（老数据 / 别的设备新建）按序号错落排布，避免全部叠在一起
-    let slot = 0;
+    // 没有有效位置的便签（老数据 / 别的设备新建）按列依次往下排，避免互相重叠
     const maxX = Math.max(0, (canvas.parentElement.clientWidth || 1200) - NOTE_W - 26);
-    notes.forEach((n, i) => {
+    notes.forEach((n) => {
       const el = buildCard(n);
-      let pos = prev[n.id];
-      if (!pos) {
-        if (hasPosition(n)) {
-          // 别的设备保存的位置可能超出当前窗口宽度，钳制回可视范围
-          pos = { x: Math.max(0, Math.min(n.x, maxX)) + 'px', y: Math.max(0, n.y) + 'px' };
-        } else {
-          const col = slot % cols;
-          const row = Math.floor(slot / cols);
-          // 每列错开一点高度，视觉上更像随手贴的便签
-          pos = {
-            x: (originX + col * (NOTE_W + GAP)) + 'px',
-            y: (originY + row * 250 + (col % 2) * 18) + 'px',
-          };
-          slot++;
-        }
+      const pos = prev[n.id];
+      if (pos) {
+        el.style.left = pos.x;
+        el.style.top = pos.y;
+      } else if (hasPosition(n)) {
+        // 别的设备保存的位置可能超出当前窗口宽度，钳制回可视范围
+        el.style.left = Math.max(0, Math.min(n.x, maxX)) + 'px';
+        el.style.top = Math.max(0, n.y) + 'px';
+      } else {
+        el.style.left = originX + 'px';
+        el.style.top = originY + 'px';
       }
-      el.style.left = pos.x;
-      el.style.top = pos.y;
       canvas.appendChild(el);
     });
+
+    // 第二阶段：拿到便签实际高度后，逐列往下排，保证互不重叠
+    relayoutFreeNotes(canvas, originX, originY, cols);
+
+    // 内容稳定（textarea 自动增高完成）后再排一次，避免高度变化导致压盖
+    requestAnimationFrame(() => requestAnimationFrame(() => relayoutFreeNotes(canvas, originX, originY, cols)));
 
     // 画布高度撑到能容纳所有便签
     let maxBottom = 0;
@@ -383,6 +461,34 @@
   }
 
   /* ================= 拖拽定位 ================= */
+  // 拖动时若与其它便签重叠，在周围找一处不重叠的位置（就近优先）
+  function avoidOverlap(card, x, y) {
+    const w = card.offsetWidth || NOTE_W;
+    const h = card.offsetHeight || 180;
+    const others = $$('.note', $('#canvas')).filter((el) => el !== card);
+    const hits = (px, py) => others.some((el) => {
+      const ox = el.offsetLeft, oy = el.offsetTop;
+      const ow = el.offsetWidth, oh = el.offsetHeight;
+      return px < ox + ow && px + w > ox && py < oy + oh && py + h > oy;
+    });
+    if (!hits(x, y)) return { x, y };
+    // 由近到远尝试若干偏移
+    const step = 24;
+    for (let r = 1; r <= 12; r++) {
+      const cand = [
+        [x, y - r * step], [x, y + r * step],
+        [x - r * step, y], [x + r * step, y],
+        [x + r * step, y + r * step], [x - r * step, y + r * step],
+        [x + r * step, y - r * step], [x - r * step, y - r * step],
+      ];
+      for (const [cx, cy] of cand) {
+        if (cx < 0 || cy < 0) continue;
+        if (!hits(cx, cy)) return { x: cx, y: cy };
+      }
+    }
+    return { x, y };
+  }
+
   function bindCanvas() {
     const canvas = $('#canvas');
     const wrap = $('#canvas-wrap');
@@ -410,8 +516,12 @@
       if (!dragState) return;
       const dx = e.clientX - dragState.startX;
       const dy = e.clientY - dragState.startY;
-      dragState.card.style.left = Math.max(0, dragState.originLeft + dx) + 'px';
-      dragState.card.style.top = Math.max(0, dragState.originTop + dy) + 'px';
+      let x = Math.max(0, dragState.originLeft + dx);
+      let y = Math.max(0, dragState.originTop + dy);
+      // 实时避让：与其他便签重叠时自动找最近的空位
+      const fixed = avoidOverlap(dragState.card, x, y);
+      dragState.card.style.left = fixed.x + 'px';
+      dragState.card.style.top = fixed.y + 'px';
     });
 
     document.addEventListener('mouseup', () => {
@@ -432,7 +542,6 @@
       }
       canvas.style.height = Math.max(maxBottom + 40, canvas.parentElement.clientHeight) + 'px';
     });
-
     // 双击空白处新建
     wrap.addEventListener('dblclick', (e) => {
       if (e.target.closest('.note') || e.target.closest('#fab-add')) return;
