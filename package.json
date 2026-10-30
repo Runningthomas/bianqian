@@ -1,0 +1,48 @@
+{
+  "name": "bianqian",
+  "version": "2.0.0",
+  "description": "桌面便签 - 贴纸式便签墙，桌面版 + 网页版共用同一套界面，支持跨电脑云同步",
+  "main": "main.js",
+  "private": true,
+  "author": "bianqian",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node scripts/make-icon.js",
+    "test": "node scripts/test-merge.js && node scripts/test-folder.js && node scripts/test-webdav.js",
+    "selfcheck": "electron scripts/selfcheck.js",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.bianqian.app",
+    "productName": "BianQian",
+    "compression": "maximum",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "sync.js",
+      "store.js",
+      "web/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "BianQian-${version}-portable.exe"
+    }
+  }
+}

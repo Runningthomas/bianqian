@@ -1,0 +1,42 @@
+name: 发布网页版到 GitHub Pages
+
+# 推 main 分支即自动发布，网址永远不变 —— 这就是"及时更新"的实现方式。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个发布任务，避免并发覆盖
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传站点文件（web/ 目录）
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v4

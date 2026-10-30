@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3efe4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="桌面便签">
+<!-- CSP：桌面版走 file:// 协议，网页版走 https；两者都需要允许 GitHub Gist API -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>桌面便签</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- ======== 顶栏 ======== -->
+  <header id="titlebar">
+    <div class="tb-brand">
+      <span class="tb-logo"></span>
+      <span class="tb-name">桌面便签</span>
+      <span id="note-count" class="tb-count"></span>
+    </div>
+    <div class="tb-actions">
+      <button id="btn-new" class="tbtn primary" title="新建便签（Ctrl+N）">＋</button>
+      <button id="btn-sync" class="tbtn" title="云同步">☁</button>
+      <button id="btn-top" class="tbtn" title="置顶显示">📌</button>
+      <button id="btn-settings" class="tbtn" title="设置">⚙</button>
+      <span class="tb-sep"></span>
+      <button id="btn-min" class="tbtn" title="最小化">&#x2500;</button>
+      <button id="btn-max" class="tbtn" title="最大化 / 还原">&#x25A1;</button>
+      <button id="btn-close" class="tbtn close" title="关闭">&#x2715;</button>
+    </div>
+  </header>
+
+  <!-- ======== 便签画布 ======== -->
+  <main id="canvas-wrap">
+    <div id="canvas"></div>
+    <div id="empty-hint" class="empty-hint" hidden>
+      <div class="eh-mascot">🐤</div>
+      <div class="eh-text">点右下角 ＋，或双击空白处，贴一张新便签</div>
+    </div>
+    <button id="fab-add" class="fab" title="新建便签（Ctrl+N）">＋</button>
+  </main>
+
+  <!-- ======== 设置抽屉 ======== -->
+  <aside id="settings" hidden>
+    <div class="s-head">
+      <b>设置</b>
+      <button id="btn-settings-close" class="tbtn">&#x2715;</button>
+    </div>
+    <div class="s-body">
+
+      <section>
+        <h3>☁ 云同步</h3>
+        <p class="muted small">便签默认只存在本机。开启同步后，换电脑打开同一个网址就能接着用。</p>
+        <div class="seg" id="provider-seg">
+          <label><input type="radio" name="provider" value="none"><span>不同步</span></label>
+          <label><input type="radio" name="provider" value="gist"><span>GitHub</span></label>
+          <label><input type="radio" name="provider" value="folder"><span>同步文件夹</span></label>
+          <label><input type="radio" name="provider" value="webdav"><span>WebDAV</span></label>
+        </div>
+
+        <div id="sf-gist" class="sf" hidden>
+          <label class="f"><span>Token</span><input id="g-token" type="password" placeholder="ghp_ 开头" autocomplete="off"></label>
+          <label class="f"><span>Gist ID</span>
+            <span class="row"><input id="g-id" placeholder="留空点右边自动创建" autocomplete="off"><button id="btn-gist-create" class="btn">创建</button></span>
+          </label>
+          <div class="row">
+            <button class="btn open-link" data-url="https://github.com/settings/tokens/new?scopes=gist&description=BianQian">打开 GitHub Token 页面</button>
+          </div>
+          <p class="muted small">网页版和桌面版共用同一个 Gist，这样两边数据自动互通。</p>
+        </div>
+
+        <div id="sf-folder" class="sf" hidden>
+          <label class="f"><span>同步文件夹</span>
+            <span class="pick-row"><input id="folder-path" placeholder="选择云盘目录" autocomplete="off"><button id="btn-pick-folder" class="btn">选择…</button></span>
+          </label>
+          <p class="muted small">仅桌面版可用：把这里指向 OneDrive / 坚果云 / WPS 云盘等目录，由云盘负责跨电脑同步。</p>
+        </div>
+
+        <div id="sf-webdav" class="sf" hidden>
+          <label class="f"><span>服务器</span><input id="wd-url" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off"></label>
+          <label class="f"><span>账号</span><input id="wd-user" autocomplete="off"></label>
+          <label class="f"><span>密码</span><input id="wd-pass" type="password" autocomplete="off"></label>
+          <label class="f"><span>目录</span><input id="wd-dir" value="BianQian" autocomplete="off"></label>
+          <p class="muted small">仅桌面版可用：坚果云「账户信息 → 安全选项 → 添加应用密码」生成的一次性密码。</p>
+        </div>
+
+        <div class="row wrap">
+          <label class="chk"><input id="sync-onlaunch" type="checkbox">启动时自动同步</label>
+          <label class="f inline"><span>每</span>
+            <select id="sync-minutes">
+              <option value="0">不自动</option>
+              <option value="1">1 分钟</option>
+              <option value="5">5 分钟</option>
+              <option value="10">10 分钟</option>
+              <option value="30">30 分钟</option>
+            </select><span>同步</span>
+          </label>
+        </div>
+        <div class="row">
+          <button id="btn-sync-now" class="btn primary">立即同步</button>
+          <span id="sync-status" class="muted small"></span>
+        </div>
+        <div class="migrate">
+          <p class="muted small"><b>换电脑：</b>旧电脑点「复制同步设置码」，新电脑（网页或桌面版）点「粘贴设置码」。</p>
+          <div class="row wrap">
+            <button id="btn-copy-code" class="btn">复制同步设置码</button>
+            <button id="btn-paste-code" class="btn">粘贴设置码…</button>
+          </div>
+          <p class="muted small" id="code-tip"></p>
+          <textarea id="sync-code" hidden rows="3" placeholder="粘贴另一台设备复制出来的设置码…" spellcheck="false"></textarea>
+          <div class="row" id="code-actions" hidden>
+            <button id="btn-code-apply" class="btn primary">应用</button>
+            <button id="btn-code-cancel" class="btn">取消</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>🎨 外观</h3>
+        <label class="f"><span>主题</span>
+          <select id="set-theme">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </label>
+        <div class="f"><span>便签纸</span><div id="set-color" class="dots"></div></div>
+      </section>
+
+      <section id="sec-desktop">
+        <h3>🪟 桌面版</h3>
+        <label class="chk"><input id="set-top" type="checkbox">置顶显示</label>
+        <label class="chk"><input id="set-edgehide" type="checkbox">贴边隐藏（拖到屏幕边缘滑出）</label>
+        <label class="chk"><input id="set-autoretract" type="checkbox">唤出后鼠标离开自动收回</label>
+        <label class="chk"><input id="set-closetotray" type="checkbox">点 ✕ 最小化到托盘</label>
+        <label class="chk"><input id="set-autologin" type="checkbox">开机自动启动</label>
+        <label class="chk"><input id="set-quickhotkey" type="checkbox">全局快捷键 Ctrl+Alt+B 速记</label>
+      </section>
+
+      <section>
+        <h3>💾 数据</h3>
+        <div class="row wrap">
+          <button id="btn-export" class="btn">导出备份</button>
+          <button id="btn-import" class="btn">导入（合并）</button>
+        </div>
+        <p class="muted small" id="import-result"></p>
+      </section>
+
+      <section>
+        <h3>ℹ️ 关于</h3>
+        <p class="muted small">
+          桌面便签 <span id="app-version">—</span> ·
+          <span id="runtime-badge" class="badge"></span><br>
+          网页版打开同一网址即可在任何设备使用，数据实时同步。
+        </p>
+        <div class="row wrap" id="install-row" hidden>
+          <button id="btn-install" class="btn primary">安装到桌面 / 手机主屏</button>
+        </div>
+        <p class="muted small">安装后可像独立软件一样打开，断网也能查看和编辑便签。</p>
+      </section>
+
+    </div>
+  </aside>
+
+  <div id="toast" hidden></div>
+</div>
+
+<!-- ======== 速记小窗（仅桌面版） ======== -->
+<div id="quick" hidden>
+  <div class="quick-head"><span>⚡ 速记</span><button id="quick-close" class="tbtn">&#x2715;</button></div>
+  <textarea id="quick-text" placeholder="记一条…&#10;Ctrl+Enter 保存，Esc 关闭"></textarea>
+  <div class="quick-foot"><span class="muted small">自动收进便签墙</span><button id="quick-save" class="btn primary">保存</button></div>
+</div>
+
+<script src="core.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+<script src="register-sw.js"></script>
+</body>
+</html>
