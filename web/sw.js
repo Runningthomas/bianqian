@@ -31,9 +31,10 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
 
   // 页面与代码：network-first —— 有网就拿最新，掉线回落缓存
+  // index.html 是入口，必须始终优先拿线上最新版（它内部带 ?v= 版本号，指向最新资源）
   if (/\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/')) {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});

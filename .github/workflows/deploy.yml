@@ -29,8 +29,15 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v4
 
+      - name: 生成版本号
+        id: ver
+        run: echo "v=$(git rev-list --count HEAD)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: 配置 Pages
         uses: actions/configure-pages@v5
+
+      - name: 注入资源版本号（绕过 CDN 缓存，保证推送即生效）
+        run: node scripts/bump-version.js "${{ steps.ver.outputs.v }}"
 
       - name: 上传站点文件（web/ 目录）
         uses: actions/upload-pages-artifact@v3
