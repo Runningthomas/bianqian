@@ -168,6 +168,11 @@
   }
 
   /* ================= 渲染 ================= */
+  // 便签是否已设置有效坐标：老数据没有 x/y 字段，或为 null / (0,0) 都算未设置
+  function hasPosition(n) {
+    return Number.isFinite(n.x) && Number.isFinite(n.y) && !(n.x === 0 && n.y === 0);
+  }
+
   function renderAll() {
     renderCanvas();
     updateTopUI();
@@ -179,21 +184,38 @@
     const count = $('#note-count');
     if (count) count.textContent = notes.length ? `${notes.length} 张` : '';
 
-    // 记住现有便签位置，避免重绘后跳动
+    // 记住现有便签位置，避免重绘后跳动（仅对已设置坐标的便签有效）
     const prev = {};
-    for (const el of $$('.note', canvas)) prev[el.dataset.id] = { x: el.style.left, y: el.style.top };
+    for (const el of $$('.note', canvas)) {
+      const n = state.notes[el.dataset.id];
+      if (n && hasPosition(n)) prev[el.dataset.id] = { x: n.x + 'px', y: n.y + 'px' };
+    }
 
     canvas.innerHTML = '';
     const cols = Math.max(1, Math.floor((canvas.parentElement.clientWidth - 52 + GAP) / (NOTE_W + GAP)));
     const originX = 26;
     const originY = 26;
 
+    // 没有有效位置的便签（老数据 / 别的设备新建）按序号错落排布，避免全部叠在一起
+    let slot = 0;
+    const maxX = Math.max(0, (canvas.parentElement.clientWidth || 1200) - NOTE_W - 26);
     notes.forEach((n, i) => {
       const el = buildCard(n);
       let pos = prev[n.id];
       if (!pos) {
-        const p = C.layoutNote(n, i, cols, originX, originY, NOTE_W + GAP, 250);
-        pos = { x: p.x + 'px', y: p.y + 'px' };
+        if (hasPosition(n)) {
+          // 别的设备保存的位置可能超出当前窗口宽度，钳制回可视范围
+          pos = { x: Math.max(0, Math.min(n.x, maxX)) + 'px', y: Math.max(0, n.y) + 'px' };
+        } else {
+          const col = slot % cols;
+          const row = Math.floor(slot / cols);
+          // 每列错开一点高度，视觉上更像随手贴的便签
+          pos = {
+            x: (originX + col * (NOTE_W + GAP)) + 'px',
+            y: (originY + row * 250 + (col % 2) * 18) + 'px',
+          };
+          slot++;
+        }
       }
       el.style.left = pos.x;
       el.style.top = pos.y;

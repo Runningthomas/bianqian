@@ -193,15 +193,6 @@
     }
   }
 
-  /** 便签在画布上的位置：优先用保存的 x/y，否则按序号自动排布。 */
-  function layoutNote(note, index, cols, originX, originY, stepX, stepY) {
-    if (note.x !== null && note.y !== null) return { x: note.x, y: note.y };
-    return {
-      x: originX + (index % cols) * stepX,
-      y: originY + Math.floor(index / cols) * stepY,
-    };
-  }
-
   return {
     DATA_FILE,
     NOTE_FIELDS,
@@ -217,6 +208,5 @@
     applySettings,
     buildSyncCode,
     parseSyncCode,
-    layoutNote,
   };
 });
